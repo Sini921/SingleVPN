@@ -95,13 +95,23 @@ void SingleVPNBatchKillAll(NSArray<NSString *> *processNames, BOOL softly) {
 
 - (NSArray *)specifiers {
     if (!_specifiers) {
-        _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
-        for (PSSpecifier *specifier in _specifiers) {
-            NSString *cellClassName = [specifier propertyForKey:@"cellClass"];
+        NSArray *specs = [self loadSpecifiersFromPlistName:@"Root" target:self];
+        NSMutableArray *mSpecs = [NSMutableArray arrayWithCapacity:specs.count];
+        for (PSSpecifier *spec in specs) {
+            NSString *cellClassName = [spec propertyForKey:@"cellClass"];
             if ([cellClassName isKindOfClass:[NSString class]]) {
-                [specifier setProperty:NSClassFromString(cellClassName) forKey:@"cellClass"];
+                [spec setProperty:NSClassFromString(cellClassName) forKey:@"cellClass"];
             }
+            if (@available(iOS 17, *)) {
+            } else {
+                NSString *key = [spec propertyForKey:@"key"];
+                if ([key isEqualToString:@"IsForce5GAEnabled"]) {
+                    continue;
+                }
+            }
+            [mSpecs addObject:spec];
         }
+        _specifiers = mSpecs;
     }
     return _specifiers;
 }
@@ -109,7 +119,7 @@ void SingleVPNBatchKillAll(NSArray<NSString *> *processNames, BOOL softly) {
 - (void)resetAppearance {
     for (PSSpecifier *specifier in self.specifiers) {
         NSString *key = [specifier propertyForKey:@"key"];
-        if ([key hasPrefix:@"ForegroundColor"]) {
+        if ([key hasPrefix:@"ForegroundColor"] || [key isEqualToString:@"IsForce5GAEnabled"]) {
             id defaultValue = [specifier propertyForKey:@"default"];
             [self setPreferenceValue:defaultValue specifier:specifier];
             [self reloadSpecifier:specifier animated:YES];

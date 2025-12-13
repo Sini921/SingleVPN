@@ -37,6 +37,7 @@
 @property (nonatomic, copy) UIColor *textColor;
 @property (nonatomic, copy) UIColor *imageDimmedTintColor;
 @property (nonatomic, copy) UIColor *imageTintColor;
+@property (nonatomic, copy) UIFont *font;
 @end
 
 @interface STUIStatusBarStringView : UIView
@@ -47,6 +48,7 @@
 
 @interface STUIStatusBarCellularNetworkTypeView : UIView
 @property (nonatomic, strong) STUIStatusBarStringView *stringView;
+@property (nonatomic, strong) NSLayoutConstraint *widthConstraint;
 @end
 
 @interface STUIStatusBarWifiSignalView : UIView
@@ -57,6 +59,8 @@
 static BOOL _isEnabled = NO;
 static BOOL _isVPNEnabled = NO;
 static BOOL _isEnabledReversed = NO;
+static BOOL _isForce5GAEnabled = NO;
+
 static UIColor *_darkReplacementColor = nil;
 static UIColor *_lightReplacementColor = nil;
 
@@ -80,6 +84,7 @@ static void ReloadPrefs() {
     NSDictionary *settings = [prefs dictionaryRepresentation];
     _isEnabled = settings[@"IsEnabled"] ? [settings[@"IsEnabled"] boolValue] : YES;
     _isEnabledReversed = settings[@"IsEnabledReversed"] ? [settings[@"IsEnabledReversed"] boolValue] : NO;
+    _isForce5GAEnabled = settings[@"IsForce5GAEnabled"] ? [settings[@"IsForce5GAEnabled"] boolValue] : NO;
 
     _lightReplacementColor = svpnColorWithHexString(settings[@"ForegroundColorLight"]) ?: [UIColor colorWithRed:0.19607843137254902 green:0.7803921568627451 blue:0.34901960784313724 alpha:1];
     _darkReplacementColor = svpnColorWithHexString(settings[@"ForegroundColorDark"]) ?: [UIColor colorWithRed:0.17254901960784313 green:0.8156862745098039 blue:0.3411764705882353 alpha:1];
@@ -230,7 +235,42 @@ static void ReloadPrefs() {
         [styleAttrs setTextColor:svpnColorWithTextColor(styleAttrs.textColor)];
     }
 
-    %orig;
+    if (![text hasPrefix:@"5G"] || !_isForce5GAEnabled) {
+        %orig;
+        return;
+    }
+
+    if (@available(iOS 16, *)) {
+        text = @"5GA";
+        prefixLength = 2;
+        %orig;
+
+        NSMutableAttributedString *attributedText = [self.stringView.attributedText mutableCopy];
+        UIFont *font = styleAttrs.font;
+
+        NSMutableDictionary *traits = [[font.fontDescriptor objectForKey:UIFontDescriptorTraitsAttribute] mutableCopy] ?: [NSMutableDictionary dictionary];
+        traits[UIFontWidthTrait] = @(UIFontWidthCondensed / 1.5);
+        traits[UIFontWeightTrait] = @(UIFontWeightSemibold);
+        UIFontDescriptor *condensedDescriptor = [font.fontDescriptor fontDescriptorByAddingAttributes:@{UIFontDescriptorTraitsAttribute: traits}];
+        UIFont *condensedFont = [UIFont fontWithDescriptor:condensedDescriptor size:0];
+        UIFont *smallerCondensedFont = [condensedFont fontWithSize:condensedFont.pointSize * 0.7];
+
+        [attributedText addAttribute:NSFontAttributeName value:condensedFont range:NSMakeRange(0, prefixLength)];
+        [attributedText addAttribute:NSFontAttributeName value:smallerCondensedFont range:NSMakeRange(prefixLength, attributedText.length - prefixLength)];
+
+        self.stringView.attributedText = attributedText;
+        self.widthConstraint.active = NO;
+
+        NSLayoutConstraint *newWidthConstraint = [NSLayoutConstraint constraintWithItem:self attribute:NSLayoutAttributeWidth relatedBy:NSLayoutRelationEqual toItem:nil attribute:NSLayoutAttributeNotAnAttribute multiplier:1.0 constant:0];
+        newWidthConstraint.constant = [attributedText size].width * 0.9;
+        newWidthConstraint.priority = UILayoutPriorityRequired;
+        newWidthConstraint.active = YES;
+
+        objc_setAssociatedObject(self, @selector(widthConstraint), newWidthConstraint, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else {
+        %orig;
+        return;
+    }
 }
 
 - (void)setAttributedText:(NSAttributedString *)attributedText prefixLength:(NSInteger)prefixLength forType:(NSInteger)type animated:(BOOL)animated {
