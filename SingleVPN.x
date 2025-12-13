@@ -1,4 +1,6 @@
 #import <HBLog.h>
+#import <UIKit/UIKit.h>
+#import <dlfcn.h>
 
 #import "Common.h"
 #import "UIColor+.h"
@@ -7,6 +9,50 @@
     [text isEqualToString:@"G"] || [text isEqualToString:@"3G"] || \
     [text isEqualToString:@"4G"] || [text containsString:@"5G"] || \
     [text isEqualToString:@"LTE"])
+
+@interface STStatusBarDataEntry : NSObject
+@property (getter=isEnabled, nonatomic, readonly) bool enabled;
+@end
+
+@interface STStatusBarDataCellularEntry : NSObject
+@end
+
+@interface STStatusBarDataWifiEntry : NSObject
+@end
+
+@interface STStatusBarData : NSObject
+@property (nonatomic, readonly) STStatusBarDataCellularEntry *cellularEntry;
+@property (nonatomic, readonly) STStatusBarDataCellularEntry *secondaryCellularEntry;
+@property (nonatomic, readonly) STStatusBarDataEntry *vpnEntry;
+@property (nonatomic, readonly) STStatusBarDataWifiEntry *wifiEntry;
+- (STStatusBarData *)dataByReplacingEntry:(id)arg1 forKey:(NSString *)arg2;
+@end
+
+@interface STUIStatusBar : NSObject
+- (STStatusBarData *)currentAggregatedData;
+- (STStatusBarData *)currentData;
+@end
+
+@interface STUIStatusBarStyleAttributes : NSObject
+@property (nonatomic, copy) UIColor *textColor;
+@property (nonatomic, copy) UIColor *imageDimmedTintColor;
+@property (nonatomic, copy) UIColor *imageTintColor;
+@end
+
+@interface STUIStatusBarStringView : UIView
+@property (nonatomic, copy) NSString *text;
+@property (nonatomic, strong) NSAttributedString *attributedText;
+@property (nonatomic, strong) UIColor *textColor;
+@end
+
+@interface STUIStatusBarCellularNetworkTypeView : UIView
+@property (nonatomic, strong) STUIStatusBarStringView *stringView;
+@end
+
+@interface STUIStatusBarWifiSignalView : UIView
+@property (nonatomic, strong) UIColor *inactiveColor;
+@property (nonatomic, strong) UIColor *activeColor;
+@end
 
 static BOOL _isEnabled = NO;
 static BOOL _isVPNEnabled = NO;
@@ -39,7 +85,7 @@ static void ReloadPrefs() {
     _darkReplacementColor = svpnColorWithHexString(settings[@"ForegroundColorDark"]) ?: [UIColor colorWithRed:0.17254901960784313 green:0.8156862745098039 blue:0.3411764705882353 alpha:1];
 }
 
-%group SingleVPN
+%group SingleVPN_16
 
 %hook _UIStatusBarWifiItem
 
@@ -133,7 +179,124 @@ static void ReloadPrefs() {
 
 %end
 
-%end // SingleVPN
+%end // SingleVPN_16
+
+%group SingleVPN_17
+
+%hook STUIStatusBar
+
+- (void)_updateWithAggregatedData:(STStatusBarData *)data {
+    BOOL changed = data.vpnEntry;
+    STStatusBarData *currentData = [self currentData];
+    if (changed && currentData.cellularEntry && !data.cellularEntry) {
+        data = [data dataByReplacingEntry:[currentData.cellularEntry copy] forKey:@"cellularEntry"];
+    }
+    if (changed && currentData.secondaryCellularEntry && !data.secondaryCellularEntry) {
+        data = [data dataByReplacingEntry:[currentData.secondaryCellularEntry copy] forKey:@"secondaryCellularEntry"];
+    }
+    if (changed && currentData.wifiEntry && !data.wifiEntry) {
+        data = [data dataByReplacingEntry:[currentData.wifiEntry copy] forKey:@"wifiEntry"];
+    }
+
+    _isVPNEnabled = currentData.vpnEntry.enabled || data.vpnEntry.enabled;
+    %orig;
+}
+
+- (void)_updateWithData:(STStatusBarData *)data completionHandler:(id)a4 {
+    BOOL changed = data.vpnEntry;
+    STStatusBarData *currentData = [self currentData];
+    if (changed && currentData.cellularEntry && !data.cellularEntry) {
+        data = [data dataByReplacingEntry:[currentData.cellularEntry copy] forKey:@"cellularEntry"];
+    }
+    if (changed && currentData.secondaryCellularEntry && !data.secondaryCellularEntry) {
+        data = [data dataByReplacingEntry:[currentData.secondaryCellularEntry copy] forKey:@"secondaryCellularEntry"];
+    }
+    if (changed && currentData.wifiEntry && !data.wifiEntry) {
+        data = [data dataByReplacingEntry:[currentData.wifiEntry copy] forKey:@"wifiEntry"];
+    }
+
+    _isVPNEnabled = currentData.vpnEntry.enabled || data.vpnEntry.enabled;
+    %orig;
+}
+
+%end
+
+%hook STUIStatusBarCellularNetworkTypeView
+
+- (void)setText:(NSString *)text prefixLength:(NSInteger)prefixLength withStyleAttributes:(STUIStatusBarStyleAttributes *)styleAttrs forType:(NSInteger)type animated:(BOOL)animated {
+    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
+    if (decision) {
+        styleAttrs = [styleAttrs copy];
+        [styleAttrs setTextColor:svpnColorWithTextColor(styleAttrs.textColor)];
+    }
+
+    %orig;
+}
+
+- (void)setAttributedText:(NSAttributedString *)attributedText prefixLength:(NSInteger)prefixLength forType:(NSInteger)type animated:(BOOL)animated {
+    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
+    if (decision) {
+        UIColor *origColor = [attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
+
+        if (origColor) {
+            NSMutableAttributedString *mutableAttrText = [attributedText mutableCopy];
+            [mutableAttrText addAttribute:NSForegroundColorAttributeName value:svpnColorWithTextColor(origColor) range:NSMakeRange(0, mutableAttrText.length)];
+
+            %orig(mutableAttrText, prefixLength, type, animated);
+            return;
+        }
+    }
+
+    %orig;
+}
+
+- (void)applyStyleAttributes:(STUIStatusBarStyleAttributes *)styleAttrs {
+    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
+    if (decision) {
+        styleAttrs = [styleAttrs copy];
+        [styleAttrs setTextColor:svpnColorWithTextColor(styleAttrs.textColor)];
+    }
+
+    %orig;
+}
+
+%end
+
+%hook STUIStatusBarWifiSignalView
+
+- (void)setActiveColor:(UIColor *)activeColor {
+    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
+    if (decision) {
+        activeColor = svpnColorWithTextColor(activeColor);
+    }
+
+    %orig;
+}
+
+- (void)setInactiveColor:(UIColor *)inactiveColor {
+    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
+    if (decision) {
+        inactiveColor = [svpnColorWithTextColor(inactiveColor) colorWithAlphaComponent:0.2];
+    }
+
+    %orig;
+}
+
+- (void)applyStyleAttributes:(STUIStatusBarStyleAttributes *)styleAttrs {
+    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
+    if (decision) {
+        styleAttrs = [styleAttrs copy];
+        UIColor *newColor = svpnColorWithTextColor(styleAttrs.textColor);
+        [styleAttrs setImageTintColor:newColor];
+        [styleAttrs setImageDimmedTintColor:[newColor colorWithAlphaComponent:0.2]];
+    }
+
+    %orig;
+}
+
+%end
+
+%end // SingleVPN_17
 
 %ctor {
     ReloadPrefs();
@@ -150,5 +313,10 @@ static void ReloadPrefs() {
         CFNotificationSuspensionBehaviorCoalesce
     );
 
-    %init(SingleVPN);
+    if (@available(iOS 17, *)) {
+        dlopen("/System/Library/PrivateFrameworks/StatusStatusUI.framework/StatusStatusUI", RTLD_LAZY);
+        %init(SingleVPN_17);
+    } else {
+        %init(SingleVPN_16);
+    }
 }
