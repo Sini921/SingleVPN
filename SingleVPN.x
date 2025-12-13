@@ -237,6 +237,12 @@ static void ReloadPrefs() {
 
     if (![text hasPrefix:@"5G"] || !_isForce5GAEnabled) {
         %orig;
+        if (@available(iOS 16, *)) {
+            if (_isForce5GAEnabled && !self.widthConstraint.active) {
+                objc_setAssociatedObject(self, @selector(widthConstraint), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                self.widthConstraint.active = YES;
+            }
+        }
         return;
     }
 
@@ -269,7 +275,6 @@ static void ReloadPrefs() {
         objc_setAssociatedObject(self, @selector(widthConstraint), newWidthConstraint, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } else {
         %orig;
-        return;
     }
 }
 
