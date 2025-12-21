@@ -40,10 +40,8 @@
 @property (nonatomic, copy) UIFont *font;
 @end
 
-@interface STUIStatusBarStringView : UIView
-@property (nonatomic, copy) NSString *text;
-@property (nonatomic, strong) NSAttributedString *attributedText;
-@property (nonatomic, strong) UIColor *textColor;
+@interface STUIStatusBarStringView : UILabel
+- (void)svpnApply5GAdvancedAttributesIfNeeded;
 @end
 
 @interface STUIStatusBarCellularNetworkTypeView : UIView
@@ -229,12 +227,6 @@ static void ReloadPrefs() {
 %hook STUIStatusBarCellularNetworkTypeView
 
 - (void)setText:(NSString *)text prefixLength:(NSInteger)prefixLength withStyleAttributes:(STUIStatusBarStyleAttributes *)styleAttrs forType:(NSInteger)type animated:(BOOL)animated {
-    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
-    if (decision) {
-        styleAttrs = [styleAttrs copy];
-        [styleAttrs setTextColor:svpnColorWithTextColor(styleAttrs.textColor)];
-    }
-
     if (![text hasPrefix:@"5G"] || !_isForce5GAEnabled) {
         %orig;
         if (@available(iOS 16, *)) {
@@ -247,24 +239,9 @@ static void ReloadPrefs() {
     }
 
     if (@available(iOS 16, *)) {
-        text = @"5GA";
-        prefixLength = 2;
         %orig;
 
-        NSMutableAttributedString *attributedText = [self.stringView.attributedText mutableCopy];
-        UIFont *font = styleAttrs.font;
-
-        NSMutableDictionary *traits = [[font.fontDescriptor objectForKey:UIFontDescriptorTraitsAttribute] mutableCopy] ?: [NSMutableDictionary dictionary];
-        traits[UIFontWidthTrait] = @(UIFontWidthCondensed / 1.5);
-        traits[UIFontWeightTrait] = @(UIFontWeightSemibold);
-        UIFontDescriptor *condensedDescriptor = [font.fontDescriptor fontDescriptorByAddingAttributes:@{UIFontDescriptorTraitsAttribute: traits}];
-        UIFont *condensedFont = [UIFont fontWithDescriptor:condensedDescriptor size:0];
-        UIFont *smallerCondensedFont = [condensedFont fontWithSize:condensedFont.pointSize * 0.7];
-
-        [attributedText addAttribute:NSFontAttributeName value:condensedFont range:NSMakeRange(0, prefixLength)];
-        [attributedText addAttribute:NSFontAttributeName value:smallerCondensedFont range:NSMakeRange(prefixLength, attributedText.length - prefixLength)];
-
-        self.stringView.attributedText = attributedText;
+        NSAttributedString *attributedText = self.stringView.attributedText;
         self.widthConstraint.active = NO;
 
         NSLayoutConstraint *newWidthConstraint = [NSLayoutConstraint constraintWithItem:self attribute:NSLayoutAttributeWidth relatedBy:NSLayoutRelationEqual toItem:nil attribute:NSLayoutAttributeNotAnAttribute multiplier:1.0 constant:0];
@@ -278,31 +255,74 @@ static void ReloadPrefs() {
     }
 }
 
-- (void)setAttributedText:(NSAttributedString *)attributedText prefixLength:(NSInteger)prefixLength forType:(NSInteger)type animated:(BOOL)animated {
-    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
-    if (decision) {
-        UIColor *origColor = [attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
+%end
 
-        if (origColor) {
-            NSMutableAttributedString *mutableAttrText = [attributedText mutableCopy];
-            [mutableAttrText addAttribute:NSForegroundColorAttributeName value:svpnColorWithTextColor(origColor) range:NSMakeRange(0, mutableAttrText.length)];
+%hook STUIStatusBarStringView
 
-            %orig(mutableAttrText, prefixLength, type, animated);
+%new
+- (void)svpnApply5GAdvancedAttributesIfNeeded {
+    if (@available(iOS 16, *)) {
+        if (!_isForce5GAEnabled) {
             return;
         }
-    }
 
-    %orig;
+        NSString *text = self.text;
+        if (![text hasPrefix:@"5G"]) {
+            return;
+        }
+
+        UIFont *font = self.font;
+        if (!font) {
+            return;
+        }
+
+        UIColor *textColor = self.textColor;
+        if (!textColor) {
+            return;
+        }
+
+        NSString *newText = @"5GA";
+        NSInteger prefixLength = 2;
+        NSMutableAttributedString *attributedText = [[NSMutableAttributedString alloc] initWithString:newText attributes:@{
+            NSFontAttributeName: font,
+            NSForegroundColorAttributeName: textColor,
+        }];
+
+        NSMutableDictionary *traits = [[font.fontDescriptor objectForKey:UIFontDescriptorTraitsAttribute] mutableCopy] ?: [NSMutableDictionary dictionary];
+        traits[UIFontWidthTrait] = @(UIFontWidthCondensed / 1.5);
+        traits[UIFontWeightTrait] = @(UIFontWeightSemibold);
+
+        UIFontDescriptor *condensedDescriptor = [font.fontDescriptor fontDescriptorByAddingAttributes:@{UIFontDescriptorTraitsAttribute: traits}];
+        UIFont *condensedFont = [UIFont fontWithDescriptor:condensedDescriptor size:0];
+        UIFont *smallerCondensedFont = [condensedFont fontWithSize:condensedFont.pointSize * 0.7];
+
+        [attributedText addAttribute:NSFontAttributeName value:condensedFont range:NSMakeRange(0, prefixLength)];
+        [attributedText addAttribute:NSFontAttributeName value:smallerCondensedFont range:NSMakeRange(prefixLength, attributedText.length - prefixLength)];
+
+        self.attributedText = attributedText;
+    }
 }
 
 - (void)applyStyleAttributes:(STUIStatusBarStyleAttributes *)styleAttrs {
     BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
-    if (decision) {
+    if (decision && IsNetworkTypeText(self.text)) {
         styleAttrs = [styleAttrs copy];
         [styleAttrs setTextColor:svpnColorWithTextColor(styleAttrs.textColor)];
     }
 
     %orig;
+    [self svpnApply5GAdvancedAttributesIfNeeded];
+}
+
+- (void)setText:(NSString *)text {
+    %orig;
+
+    BOOL decision = _isEnabledReversed ? !_isVPNEnabled : _isVPNEnabled;
+    if (decision && IsNetworkTypeText(text)) {
+        [self setTextColor:svpnColorWithTextColor(self.textColor)];
+    }
+
+    [self svpnApply5GAdvancedAttributesIfNeeded];
 }
 
 %end
