@@ -227,7 +227,7 @@ static void ReloadPrefs() {
 %hook STUIStatusBarCellularNetworkTypeView
 
 - (void)setText:(NSString *)text prefixLength:(NSInteger)prefixLength withStyleAttributes:(STUIStatusBarStyleAttributes *)styleAttrs forType:(NSInteger)type animated:(BOOL)animated {
-    if (![text hasPrefix:@"5G"] || !_isForce5GAEnabled) {
+    if (!IsNetworkTypeText(text) || !_isForce5GAEnabled) {
         %orig;
         if (@available(iOS 16, *)) {
             if (_isForce5GAEnabled && !self.widthConstraint.active) {
@@ -267,7 +267,7 @@ static void ReloadPrefs() {
         }
 
         NSString *text = self.text;
-        if (![text hasPrefix:@"5G"]) {
+        if (!IsNetworkTypeText(text)) {
             return;
         }
 
